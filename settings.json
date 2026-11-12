@@ -394,12 +394,20 @@
       }
     ]
   },
-  "enabledPlugins": {},
+  "enabledPlugins": {
+    "remotion@remotion": true
+  },
   "extraKnownMarketplaces": {
     "caveman": {
       "source": {
         "source": "github",
         "repo": "JuliusBrussee/caveman"
+      }
+    },
+    "remotion": {
+      "source": {
+        "source": "github",
+        "repo": "remotion-dev/claude-code-plugin"
       }
     }
   },

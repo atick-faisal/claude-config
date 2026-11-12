@@ -1,4 +1,15 @@
 {
   "version": 2,
-  "plugins": {}
+  "plugins": {
+    "remotion@remotion": [
+      {
+        "scope": "user",
+        "installPath": "/Users/ai/.claude/plugins/cache/remotion/remotion/4.0.542",
+        "version": "4.0.542",
+        "installedAt": "2026-11-11T07:19:39.362Z",
+        "lastUpdated": "2026-11-11T07:19:39.362Z",
+        "gitCommitSha": "6ccd1852dddbd46f5ca1a8544fb30fb97f747b06"
+      }
+    ]
+  }
 }
