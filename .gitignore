@@ -1,0 +1,66 @@
+# ~/.claude is ~2,600 files of machine state (transcripts, caches, locks, cloned plugin
+# repos) wrapped around ~180 files of hand-written config — plus a live OAuth token in
+# .credentials.json. So: ignore everything, then opt back in by name.
+#
+# Adding a new hand-authored file or directory? It needs a `!` line here or git will
+# never see it. To find anything currently invisible:
+#   git status --porcelain --ignored | grep '^!!'
+
+*
+
+# --- Config ---
+!.gitignore
+!.gitattributes
+!README.md
+!CLAUDE.md
+!PLAN.md
+!settings.json
+!justfile
+
+# --- Planning system state: the north star and the per-feature spec docs ---
+!docs/
+!docs/**
+
+# --- Hand-authored directories ---
+# Both lines per directory are required: `!dir/` lets git descend into it, `!dir/**`
+# re-includes the contents (bare `*` above matches at every depth, not just the root).
+!agents/
+!agents/**
+!commands/
+!commands/**
+!guidelines/
+!guidelines/**
+!hooks/
+!hooks/**
+!skills/
+!skills/**
+!templates/
+!templates/**
+
+# hooks/ interleaves per-session state with the scripts. Must come after !hooks/**.
+hooks/state/
+
+# Installed and overwritten by herdr's integration; not ours to version.
+hooks/herdr-agent-state.sh
+
+# Skill-sync store and its trash. Rewrites a manifest timestamp every sync round.
+skills/.trash/
+skills/synced/
+
+# --- Plugin manifests: enough to restore the plugin set on a new machine.
+# The cloned marketplace repos under plugins/marketplaces/ stay ignored — they carry
+# their own .git directories and would be committed as broken gitlinks.
+# known_marketplaces.json stays ignored too: it rewrites a lastUpdated timestamp on
+# every marketplace refresh, so it is churn, not config.
+!plugins/
+!plugins/installed_plugins.json
+
+# --- projects/*/memory/ is deliberately NOT opted back in ---
+# This repo is public, and the memory notes name client work, internal servers and
+# unpublished research. They stay on this machine only; Claude Code reads them from disk.
+
+# --- Never, at any depth, even inside an allowed directory ---
+.DS_Store
+*.bak
+*.bak-*
+.credentials.json

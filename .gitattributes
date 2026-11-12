@@ -1,0 +1,5 @@
+# This repo mirrors a config directory that other tools read and write in place,
+# so git must store every file byte-for-byte. `-text` disables line-ending
+# conversion: some installed skill assets under skills/diagram-design/ use CRLF,
+# and normalising them to LF would rewrite upstream files on checkout.
+* -text

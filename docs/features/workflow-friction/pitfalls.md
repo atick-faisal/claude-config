@@ -1,0 +1,1 @@
+# Workflow Friction Fixes — Pitfalls

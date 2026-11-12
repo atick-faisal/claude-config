@@ -1,0 +1,44 @@
+# TEMPLATE — delete this block when instantiating.
+#
+#     Copy to <repo>/justfile. Written once at project bootstrap by
+#     /project-init, then owned by the human. No skill edits it afterwards,
+#     except to append a `verify` recipe when one is missing.
+#
+#     `verify` is the contract. /implement will not call a task done until it
+#     exits zero, so it has to run everything CI runs. Derive the body from the
+#     repo's actual CI workflow and existing scripts — not from a guess about
+#     the stack. A stack guess produces a plausible recipe that misses the two
+#     checks this particular repo actually cares about.
+#
+#     Compose, never duplicate. Give each check its own recipe and let `verify`
+#     depend on them. A command written in two places drifts.
+#
+#     The recipe names below are placeholders too. Use whatever this repo calls
+#     these things, and add or drop rows freely — three is not a target.
+#
+#     UPGRADE, once there are more than a couple of checks: `just` dependencies
+#     are fail-fast, so the first broken check hides every one after it.
+#     Replace the body with a bash block that runs all of them, collects the
+#     failures and prints one summary at the end. One run then tells the whole
+#     story instead of one failure per run.
+#
+#     Body placeholders after this block is deleted: <lint>, <types>, <test>,
+#     their three <...-command> lines, and the three <what this checks> docs.
+
+default:
+    @just --list --unsorted
+
+# Run every check. THE entrypoint after implementing a feature.
+verify: <lint> <types> <test>
+
+# <what this checks>
+<lint>:
+    <lint-command>
+
+# <what this checks>
+<types>:
+    <types-command>
+
+# <what this checks>
+<test>:
+    <test-command>
