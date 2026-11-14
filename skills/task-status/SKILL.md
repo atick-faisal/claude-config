@@ -1,6 +1,7 @@
 ---
 description: Set one task's Status in its feature's tasks.md, then roll up the feature's plan.md frontmatter status to match the table. Called by /implement at the start and end of a task.
 argument-hint: "<task-id> <pending|in-progress|done|blocked> [reason]"
+model: haiku
 ---
 
 # Task status

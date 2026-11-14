@@ -332,7 +332,8 @@
       "Bash(chmod +x /tmp/* && /tmp/*)",
       "Bash(eval $(curl *)*)",
       "Bash(eval $(wget *)*)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
   "model": "opus",
   "hooks": {

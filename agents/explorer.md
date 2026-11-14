@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Read-only reconnaissance for the /feature-plan phase. Given a feature description, returns a structured findings brief — relevant files, existing patterns, constraints, a complexity verdict and a pushback recommendation. Not a general-purpose code search.
-model: inherit
+model: sonnet
 effort: high
 color: cyan
 tools: Read, Glob, Grep, Bash

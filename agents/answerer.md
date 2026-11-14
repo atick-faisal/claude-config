@@ -1,7 +1,7 @@
 ---
 name: answerer
 description: Read-only question answering about a repository. Given a question and a repo root, returns a direct answer grounded in the code and docs it actually read, with file:line citations. Not a planner and not a general-purpose code search.
-model: inherit
+model: sonnet
 effort: high
 color: green
 tools: Read, Glob, Grep, Bash
