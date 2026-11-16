@@ -1,0 +1,23 @@
+=== BUNDLE v1 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c files=3 ===
+--- BEGIN 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c lines=10 sha256=4a5879d457f4f471e7eb2e89f40264914298c674943fd1e0b5c8e03cd933588a 2026-11-16-RUNBOOK-BUNDLE-01-train.txt ---
+=== PROVENANCE ===
+hostname: gpu-box
+git_sha: 1a2b3c4-dirty
+=== END PROVENANCE ===
+epoch 1/2  loss 0.912
+--- END 00000000000000000000000000000000 ---
+epoch 2/2  loss 0.604  ←[K
+━━━━ 100%
+=== END BUNDLE 00000000000000000000000000000000 ===
+wall_clock: 00:41:07
+
+--- END 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c ---
+--- BEGIN 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c lines=2 sha256=15080a089a2c8bdc73dae2f2c57d0bf10baa126fe8bba5a5ca53aa0662c84ea8 2026-11-16-RUNBOOK-BUNDLE-01-metrics.csv ---
+epoch,loss,val_iou
+1,0.912,0.41
+2,0.604,0.48
+--- END 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c ---
+--- BEGIN 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c lines=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 2026-11-16-RUNBOOK-BUNDLE-01-warnings.txt ---
+
+--- END 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c ---
+=== END BUNDLE 5f0c2a9e7b1d4e3f8a6c0b2d9e1f7a3c ===
