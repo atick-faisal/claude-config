@@ -38,8 +38,7 @@ a path or a SHA.** If one is missing, ask for it rather than writing something p
   does not say what runs, ask.
 - **`<what-runs>`** — kebab-case, two to four words, naming the run. Each step's `<what-ran>` is
   distinct, so no two steps write the same log, and never `bundle`, which the Bundle section skips.
-- **`<server-repo-path>`** — from the newest runbook in `runbooks/`, else a `RUNBOOK-*.md` at the
-  repo root from before this convention. Neither exists: ask.
+- **`<server-repo-path>`** — from the newest runbook in `runbooks/`. If there is none, ask.
 - **`<git-sha>`** — `git rev-parse --short HEAD`. The server runs what was pushed, not this working
   tree. If `git status --porcelain` shows changes to the code the run uses, say so in one line.
 - **Durations** for `<order>` and `<step-notes>` — from an earlier log of the same command, else say
@@ -103,8 +102,7 @@ The commit guard needs the task ID **in parentheses** in the subject, for exampl
 
 - **Never invent a command, a path, a SHA or a task ID.** Ask instead.
 - **Never change the Bundle section.** It must keep the same format `unbundle.py` reads.
-- **Never overwrite, move or delete a runbook** this conversation did not write. That includes a
-  root-level `RUNBOOK-*.md` from before this convention.
+- **Never overwrite, move or delete a runbook** this conversation did not write.
 - **Never write code.** If the run needs a change first, that is `/implement`'s job.
 - **Never push, stage or commit**, and never chain into `/log-experiment`.
 - **Never touch `docs/goal.md`, `plan.md`, `tasks.md`, `decisions.md` or `pitfalls.md`.**
