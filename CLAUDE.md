@@ -28,7 +28,7 @@ Long-running work is planned before it is built, in a repo onboarded by `/projec
   and `pitfalls.md`. Agent state, not published docs.
 - `/feature-plan` starts a feature. `/implement` builds one task from an existing one.
   `/project-init` onboards a repo that has neither. On demand: `/task-plan`, `/write-adr`,
-  `/log-pitfall`, `/resolve-pitfall`, `/log-experiment`, `/task-status`,
+  `/log-pitfall`, `/resolve-pitfall`, `/runbook`, `/log-experiment`, `/task-status`,
   `/commit-task`, `/audit-feature`, `/ask`, `/lesson`.
 
 **Use it when** the work spans more than one sitting or more than a couple of files.
