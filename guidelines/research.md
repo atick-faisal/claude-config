@@ -58,6 +58,17 @@
   no new dependency, and lives in or next to the one results-formatting module.
 - **Server logs are saved to `logs/<YYYY-MM-DD>-<task>-<what-ran>.txt`**, git-ignored, and
   pasted back **unfiltered**.
+- **A run prints what the record needs, and nothing per batch.** Always the provenance block,
+  the results block and the footer, W&B group names, warnings and errors, and one summary per
+  epoch or stage. Never per-batch lines or progress-bar redraws: piped to a log, every redraw
+  becomes its own line, and the whole run has to come back in one paste. For ultralytics,
+  `GITHUB_ACTIONS=1` is one candidate switch, not yet confirmed on Windows — see the
+  `ultralytics-progress-bar-garbles-piped-logs` lesson. This limits what is *printed*. What was
+  printed is still pasted back unfiltered.
+- **Runbooks live in `runbooks/<YYYY-MM-DD>-<task>-<what-runs>.md`**, written by `/runbook`,
+  git-ignored and never deleted: a runbook is the only record of exactly what was pasted on the
+  server. Its last section is always Bundle, which joins every log and CSV the run wrote into
+  one paste that `/log-experiment` splits back into `logs/`.
 - **Negative results are recorded.** A flat ablation row is a finding.
 - **Every long run takes a `--limit` / `--dry-run`**, so the first thing run on the server is a
   two-minute version of the real command.
