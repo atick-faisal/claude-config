@@ -1,7 +1,7 @@
 ---
 slug: runbook-bundle
 title: Server runbooks and log bundling
-status: in-progress
+status: shipped
 created: 2026-11-16
 ---
 
