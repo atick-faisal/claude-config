@@ -7,3 +7,4 @@
 | RUNBOOK-BUNDLE-03 | `/runbook` skill — takes a task ID, instantiates the template into `runbooks/<YYYY-MM-DD>-<TASK-ID>-<what-runs>.md`, git-ignores `runbooks/` on first use | small | sonnet | done | blocked by -02 |
 | RUNBOOK-BUNDLE-04 | `/log-experiment` — unbundle a `-bundle.txt` path first, write one record per bundle with every file in `Log:`, duplicate-check each file, carve the bundle out of the never-delete guardrail | small | sonnet | done | blocked by -01 |
 | RUNBOOK-BUNDLE-05 | `guidelines/research.md` — Conventions bullets for runbooks and for what a run prints (keep provenance, results, warnings, per-epoch summaries; drop per-batch lines and progress-bar redraws) | small | sonnet | done | the printing rule limits output at the source; "pasted unfiltered" stands |
+| RUNBOOK-BUNDLE-06 | Add `/runbook` to the on-demand command list in the global `CLAUDE.md`, next to `/log-experiment` | trivial | sonnet | done | from audit |
