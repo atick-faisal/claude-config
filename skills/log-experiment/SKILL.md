@@ -1,13 +1,14 @@
 ---
 description: Turn a saved experiment log into one numbered record under docs/experiments/, and update the run and findings ledgers.
-argument-hint: "<path to the saved log>, or <TASK-ID> for a no-run finding"
+argument-hint: "<path to the saved log or -bundle.txt>, or <TASK-ID> for a no-run finding"
 disable-model-invocation: true
 ---
 
 # Log an experiment
 
 `$ARGUMENTS` is a path to a log the human saved from the machine that ran the experiment, and may
-name a task ID alongside it. A task ID **on its own** is the no-run form of §1: a finding that came
+name a task ID alongside it. A path ending in `-bundle.txt` is a pasted bundle of a whole run's
+logs, which §2 unpacks first. A task ID **on its own** is the no-run form of §1: a finding that came
 out of writing the code, with no log behind it.
 
 ---
@@ -30,7 +31,30 @@ weight does not depend on whether a GPU was involved. The bar is unchanged: cite
 re-derived the expensive way. A preference, a refactor, or something the docs already say is not a
 finding.
 
-## 2. Resolve the repo and read the log
+## 2. Unbundle a pasted bundle
+
+**Only for a path ending in `-bundle.txt`.** A runbook's Bundle step joins every log and CSV a
+server run wrote into one block of text, and the human saved it with `pbpaste`. Split it back into
+its files before anything else:
+
+```
+python3 ~/.claude/skills/log-experiment/unbundle.py <path>
+```
+
+Run the script; never read the bundle into the conversation or write its files yourself. It checks
+every file's line count and checksum, writes them beside the bundle in `logs/`, and deletes the
+bundle only once all of them are in place.
+
+- **Exit 0** — relay its summary. The files it lists, written or skipped as already present, are
+  this run's logs from here on: every later step that says "the log" means each of them.
+- **Exit 1** — quote its stderr verbatim and **stop**. The bundle is kept. A failed check means the
+  paste was cut short or altered, so the fix is re-copying it on the server, where the Bundle step
+  kept `logs\<date>-<TASK-ID>-bundle.txt`, and saving it again. Never repair a bundle by hand.
+
+Unbundling comes before the bar test is applied, and stands even when the run fails it: the logs
+belong in `logs/` either way.
+
+## 3. Resolve the repo and read the log
 
 `git rev-parse --show-toplevel`; fall back to the working directory and say so.
 
@@ -58,10 +82,13 @@ Then find the provenance footer at the end, which carries the finish time and wa
 W&B group names. Those are what the record needs, and they are exactly what a filtered log would
 have destroyed.
 
-**An older log may have no provenance block.** That is not a reason to stop or to ask. §5 says
+**An older log may have no provenance block.** That is not a reason to stop or to ask. §6 says
 what the record does instead.
 
-## 3. Open the ledger, creating it on first use
+**From a bundle, do all of this for every file §2 unpacked**: each one gets the filename check and
+is read by anchor. A CSV has no blocks to find; it is cited, not read.
+
+## 4. Open the ledger, creating it on first use
 
 `docs/experiments/index.md` allocates both counters. Read it before anything else is decided.
 
@@ -76,11 +103,16 @@ Instantiate both templates the way `skills/feature-plan/SKILL.md` sets out: read
 `<angle-bracket>` placeholder. Do not `cp`. An instantiated file carries no HTML comment and no
 placeholder.
 
-## 4. Check for a duplicate, then allocate
+## 5. Check for a duplicate, then allocate
 
 **Before taking a number**, grep `docs/experiments/` for the log path. If a record already cites
 it, this run is logged: name that record and stop. A duplicate is not a harmless second line — it
 is a second row in the run ledger, and every later count of it is wrong.
+
+**From a bundle, grep for each unpacked file.** The Bundle step gathers every dated log of the
+task, so a task's second run re-sends the first run's logs. A file an earlier record already cites
+belongs to that record: leave it out of this one, and name it in the report. If every file is
+already cited, this run is logged: name the records and stop.
 
 **The no-run form has no log path to grep**, so check the claim instead: grep for the task ID and
 for the symbol or file the finding is about. Two records asserting the same limit is the same
@@ -95,7 +127,7 @@ Then allocate, each counter taken as the highest already in the ledger plus one:
 
 Never reuse an ID, never renumber a row. Gaps are expected and fine.
 
-## 5. Write the record
+## 6. Write the record
 
 Write `docs/experiments/<NNN>-<slug>.md` in the shape `~/.claude/templates/experiment.md` sets
 out — kebab-case slug, two to four words, naming what ran. Take every header field from the log
@@ -105,13 +137,24 @@ rather than from memory, and from the provenance block wherever it has the field
 - **git_sha** — the block's `git_sha` line, `-dirty` / `-untracked` suffix intact.
 - **Command** — the block's command line, as it was actually run.
 - **Wall clock** — the provenance footer.
-- **Date** and **W&B group** — the block's start time, and the W&B group names found in §2.
+- **Date** and **W&B group** — the block's start time, and the W&B group names found in §3.
 - **Environment** — the whole block pasted verbatim, markers and all, the same way Results holds
   the console block.
 
+**A bundle is one record**, however many logs it carries. Its fields span all of them:
+
+- **Log** — every file this record keeps from §5, by path: logs in step order, then CSVs after
+  "with".
+- **Command** — each log's command, in step order, under a `# <N>. <what-ran>` comment line.
+- **Wall clock** — the first start to the last finish, then each step's own.
+- **Machine** and **git_sha** — from the blocks. If two logs disagree, give each and add a
+  provenance caveat.
+- **Environment** — the first log's block, verbatim, after a line naming that log and saying how
+  the other blocks differ. Check that with `diff`; do not assume it.
+
 **No provenance block — do not ask.** Write `not recorded` in every field the block would have
 filled, and in `## Environment`. Add a provenance caveat saying the log predates the block, so
-the machine, environment and exact command are unknown, and flag the gap in the report (§7). A
+the machine, environment and exact command are unknown, and flag the gap in the report (§8). A
 field filled from memory or guessed from the log's filename is the fabrication the next rule
 forbids. This is for a run whose log lacks the block; the no-run form has no run, so its fields
 are deleted, not marked `not recorded`.
@@ -139,7 +182,7 @@ worse than a missing one, because it reads as evidence.
 is committed, git is the undo: a rejected record is deleted along with its ledger rows, and since
 nothing committed ever cited its number, no ID is burned. "Never edited" starts at the commit.
 
-## 6. Update both ledgers
+## 7. Update both ledgers
 
 Append one row to **Runs** and one row per finding to **Findings**. A no-run record gets an
 ordinary row with `—` in `Machine`, `What ran` naming what was being authored, and the claim itself
@@ -159,7 +202,7 @@ points at is never touched** — not to soften the claim, not to add a note that
 overturned. A record is a dated statement of what was believed on the strength of one run. Edit it
 and it stops being evidence of anything.
 
-## 7. Report
+## 8. Report
 
 End with the closing block (`CLAUDE.md`, "How I like answers"). The Summary says in plain words
 what ran, what it found, and any earlier finding it confirmed or overturned — not run or finding
@@ -178,10 +221,11 @@ bare mention of it in the prose — or `[no-task]` when no row owns the run.
 - **One run, one file, one number.** Never reused, never renumbered.
 - **Never edit a record after it is committed.** The ledger's Status cell is where a claim's fate
   is recorded instead. Before the commit, the uncommitted diff is the review.
-- **Never edit a committed ledger row beyond the two cells §6 names**, and never delete one.
+- **Never edit a committed ledger row beyond the two cells §7 names**, and never delete one.
 - **Never invent a number, a comparison or a caveat.** Leave it out, or write `not recorded`.
 - **Never let a no-run record borrow a run's authority.** No wall clock, no machine, no W&B group,
   no `Log:` path and no `## Environment` — those are deleted, not filled with something plausible.
-- **Never rename, move, filter or delete the log.**
+- **Never rename, move, filter or delete the log.** The one exception is a `-bundle.txt` file, and
+  only `unbundle.py` deletes it, after every file in it is verified and in place.
 - **Never write code**, never touch `docs/goal.md`, `plan.md`, `tasks.md`, `decisions.md` or
   `pitfalls.md`, never stage or commit.
