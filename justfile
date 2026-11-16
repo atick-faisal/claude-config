@@ -5,7 +5,7 @@ default:
 verify:
     #!/usr/bin/env bash
     failed=()
-    for check in shell python json tracked; do
+    for check in shell python json tracked test; do
         just "$check" || failed+=("$check")
     done
     if (( ${#failed[@]} )); then
@@ -19,9 +19,16 @@ verify:
 shell:
     git ls-files -z --cached --others --exclude-standard -- ':(glob)hooks/*.sh' | xargs -0 shellcheck
 
-# Hook Python parses. There is no test suite — this catches a broken edit, nothing more.
+# Every Python file in hooks/ and skills/ parses. Ignored stores (skills/synced/, skills/.trash/)
+# are skipped: they are not ours to fix.
 python:
-    python3 -c 'import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' hooks/*.py
+    git ls-files -z --cached --others --exclude-standard -- ':(glob)hooks/*.py' ':(glob)skills/**/*.py' \
+        | xargs -0 python3 -c 'import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]'
+
+# The log unbundler's tests. -B because .gitignore's !skills/** would surface __pycache__/
+# as untracked files.
+test:
+    python3 -B -m unittest discover -s skills/log-experiment
 
 # Every JSON Claude Code reads at startup parses. A broken settings.json fails silently.
 json:
