@@ -8,7 +8,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { build, check, sourceHeader, BuildError, CSP, parseRoadmap, escapeInlineScript, isExternalUrl } = require('../build.js');
+const {
+  build,
+  check,
+  sourceHeader,
+  BuildError,
+  CSP,
+  parseRoadmap,
+  parseBudget,
+  dropSlides,
+  escapeInlineScript,
+  isExternalUrl,
+} = require('../build.js');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
@@ -68,9 +79,9 @@ function buildDeck(root) {
 }
 
 /** Build, expecting failure; returns the error list. */
-function buildErrors(root) {
+function buildErrors(root, options = {}) {
   try {
-    build({ root, warn: () => {} });
+    build({ root, warn: () => {}, ...options });
   } catch (err) {
     assert.ok(err instanceof BuildError, `expected a BuildError, got ${err}`);
     return err.errors;
@@ -282,6 +293,113 @@ describe('build', () => {
   });
 });
 
+describe('parseBudget', () => {
+  const LABEL = 'budgets/20min/budget.md';
+
+  test('reads slide ids from the first bullet list under ## Drop, backticked or bare', () => {
+    const text =
+      '# 20 minutes\n\n- not a drop item\n\n## Drop\n\n' +
+      '- `middle-2` — the derivation; middle-1 carries it\n' +
+      '* closing-3\n' +
+      '  continued reason\n\n' +
+      'Prose ends the list.\n\n- `later` is not dropped\n\n## Notes\n\n- `notes-1`\n';
+    assert.deepEqual(parseBudget(text, LABEL), { drop: ['middle-2', 'closing-3'], errors: [] });
+  });
+
+  test('no ## Drop section drops nothing', () => {
+    assert.deepEqual(parseBudget('# 20 minutes\n\n## Minutes\n\n- opening: 5\n', LABEL), { drop: [], errors: [] });
+  });
+
+  test('reports a bad slide id and a duplicate, with the line', () => {
+    const { errors } = parseBudget('## Drop\n\n- "middle 2"\n- `a`\n- `a`\n', LABEL);
+    assertSomeMatch(errors, /budget\.md:3: a drop item must start with a slide id/);
+    assertSomeMatch(errors, /budget\.md:5: slide "a" is dropped twice/);
+  });
+});
+
+test('dropSlides cuts top-level sections by id and leaves nested ones and comments alone', () => {
+  const html =
+    '<!-- <section id="a"> -->\n<section class="slide" id="a"><section id="inner"></section></section>\n' +
+    "<section id='b'><p>keep</p></section>\n";
+  const dropped = new Set();
+  const errors = [];
+  const out = dropSlides(html, new Set(['a', 'inner']), dropped, 'slides/x.html', errors);
+  assert.deepEqual(errors, []);
+  assert.deepEqual([...dropped], ['a']);
+  assert.equal(out, "<!-- <section id=\"a\"> -->\n\n<section id='b'><p>keep</p></section>\n");
+  dropSlides('<section id="a">', new Set(['a']), dropped, 'slides/x.html', errors);
+  assertSomeMatch(errors, /slides\/x\.html: a <section> is never closed/);
+});
+
+describe('build with a time budget', () => {
+  const BUDGET = '# 20 minutes\n\n## Drop\n\n- `middle-2` — too deep for 20 minutes\n- `closing-1`\n';
+
+  /** A base deck where middle has two slides, plus a 20min overlay and any overrides. */
+  function budgetDeck(files = {}) {
+    return makeDeck({
+      'slides/middle.html': '<section id="middle-1"><h2>Middle</h2></section>\n<section id="middle-2"><h2>Deep</h2></section>\n',
+      'slides/closing.html': '<section id="closing-1"></section>\n<section id="closing-2"></section>\n',
+      'budgets/20min/budget.md': BUDGET,
+      ...files,
+    });
+  }
+
+  test('drops listed slides and writes build/<N>min/index.html, leaving the base build alone', () => {
+    const root = budgetDeck();
+    const { outFile, dropped, overridden } = build({ root, budget: '20min', warn: () => {} });
+    const html = fs.readFileSync(outFile, 'utf8');
+    assert.equal(outFile, path.join(root, 'build', '20min', 'index.html'));
+    assert.deepEqual(dropped.sort(), ['closing-1', 'middle-2']);
+    assert.deepEqual(overridden, []);
+    for (const id of ['opening-1', 'middle-1', 'closing-2']) assert.ok(html.includes(`id="${id}"`), id);
+    for (const id of ['middle-2', 'closing-1']) assert.ok(!html.includes(`id="${id}"`), id);
+    assert.ok(!fs.existsSync(path.join(root, 'build', 'index.html')), 'a budget build never writes the base output');
+
+    const base = buildDeck(root).html;
+    assert.ok(base.includes('id="middle-2"') && base.includes('id="closing-1"'), 'the base keeps every slide');
+  });
+
+  test('an override chunk replaces only its chapter, and resolves assets from the deck root', () => {
+    const root = budgetDeck({
+      'assets/dot.png': PNG,
+      'budgets/20min/budget.md': '# 20 minutes\n',
+      'budgets/20min/slides/middle.html': '<section id="middle-short"><img src="assets/dot.png" alt=""></section>\n',
+    });
+    const result = build({ root, budget: '20min', warn: () => {} });
+    const html = fs.readFileSync(result.outFile, 'utf8');
+    assert.deepEqual(result.overridden, ['middle']);
+    assert.ok(html.includes('<!-- budgets/20min/slides/middle.html -->'));
+    assert.ok(html.includes('id="middle-short"') && !html.includes('id="middle-1"'));
+    assert.ok(html.includes('id="opening-1"') && html.includes('id="closing-2"'), 'untrimmed chunks come from the base');
+    assert.ok(html.includes(`src="data:image/png;base64,${PNG.toString('base64')}"`));
+  });
+
+  test('drops apply to an override chunk too', () => {
+    const root = budgetDeck({
+      'budgets/20min/slides/middle.html': '<section id="middle-1"></section><section id="middle-2"></section>',
+    });
+    const html = fs.readFileSync(build({ root, budget: '20min', warn: () => {} }).outFile, 'utf8');
+    assert.ok(html.includes('id="middle-1"') && !html.includes('id="middle-2"'));
+  });
+
+  test('reports a stale drop id, a stray override and a bad drop item at once, and writes nothing', () => {
+    const root = budgetDeck({
+      'budgets/20min/budget.md': '# 20 minutes\n\n## Drop\n\n- `middle-9`\n- "bad id"\n',
+      'budgets/20min/slides/gone.html': '<section id="gone-1"></section>',
+    });
+    const errors = buildErrors(root, { budget: '20min' });
+    assertSomeMatch(errors, /budgets\/20min\/budget\.md: dropped slide "middle-9" matches no slide in the deck/);
+    assertSomeMatch(errors, /budgets\/20min\/slides\/gone\.html overrides no chapter listed in docs\/roadmap\.md/);
+    assertSomeMatch(errors, /budget\.md:6: a drop item must start with a slide id/);
+    assert.ok(!fs.existsSync(path.join(root, 'build')));
+  });
+
+  test('a missing budget folder and a malformed budget name fail', () => {
+    assertSomeMatch(buildErrors(makeDeck(), { budget: '45min' }), /budgets\/45min\/budget\.md is missing/);
+    assertSomeMatch(buildErrors(makeDeck(), { budget: '../20min' }), /must be a number of minutes/);
+  });
+});
+
 describe('check', () => {
   const MD = { opening: '# Opening\n\nWhy this matters.\n', middle: '# Middle\n', closing: '# Closing\n' };
 
@@ -371,6 +489,28 @@ describe('check', () => {
     assertSomeMatch(checkErrors(freshDeck({ 'docs/roadmap.md': null })), /docs\/roadmap\.md is missing/);
   });
 
+  test('covers every budget override: fresh ones pass, stale or stray ones fail', () => {
+    const fresh = freshDeck({
+      'budgets/20min/budget.md': '# 20\n',
+      'budgets/20min/slides/middle.html': chunkFor('middle'),
+      'budgets/5min/slides/opening.html': chunkFor('opening'),
+      'budgets/drafts/slides/closing.html': 'not a budget folder, not checked',
+    });
+    const result = check({ root: fresh, warn: () => {} });
+    assert.deepEqual(result.overrides, ['budgets/5min/slides/opening.html', 'budgets/20min/slides/middle.html']);
+
+    const errors = checkErrors(
+      freshDeck({
+        'budgets/20min/slides/middle.html': chunkFor('middle', '# Older middle\n'),
+        'budgets/20min/slides/opening.html': '<section id="opening-short"></section>',
+        'budgets/20min/slides/gone.html': chunkFor('opening'),
+      }),
+    );
+    assertSomeMatch(errors, /^budgets\/20min\/slides\/middle\.html is stale: docs\/middle\.md changed/);
+    assertSomeMatch(errors, /^budgets\/20min\/slides\/opening\.html has no source header/);
+    assertSomeMatch(errors, /^budgets\/20min\/slides\/gone\.html overrides no chapter/);
+  });
+
   test('the CLI exits 1 on a stale chunk and 0 when fresh', () => {
     const stale = freshDeck({ 'docs/opening.md': '# Changed\n' });
     fs.copyFileSync(path.join(__dirname, '..', 'build.js'), path.join(stale, 'build.js'));
@@ -386,6 +526,24 @@ describe('check', () => {
     assert.equal(run('--complete'), 2, '--complete alone is a usage error');
     fs.writeFileSync(path.join(stale, 'docs', 'opening.md'), MD.opening);
     assert.equal(run('--check', '--complete'), 0);
+  });
+
+  test('the CLI builds a budget given as <N>min, and rejects bad combinations', () => {
+    const root = freshDeck({ 'budgets/20min/budget.md': '# 20\n\n## Drop\n\n- `closing-1`\n' });
+    fs.copyFileSync(path.join(__dirname, '..', 'build.js'), path.join(root, 'build.js'));
+    const run = (...args) => {
+      try {
+        execFileSync(process.execPath, ['build.js', ...args], { cwd: root, stdio: 'pipe' });
+        return 0;
+      } catch (err) {
+        return err.status;
+      }
+    };
+    assert.equal(run('20min'), 0);
+    assert.ok(!fs.readFileSync(path.join(root, 'build', '20min', 'index.html'), 'utf8').includes('closing-1'));
+    assert.equal(run('--check', '20min'), 2, '--check covers every budget already');
+    assert.equal(run('20min', '5min'), 2);
+    assert.equal(run('twenty'), 2);
   });
 });
 
