@@ -188,12 +188,28 @@ the `skills/runbook/SKILL.md` precedent: instantiate into the target repo and wr
 - `deck.js` keeps its pure logic (key map, number-jump buffer, scale maths, step-before-advance)
   free of the DOM, so `test/deck.test.js` can cover it. `~/.claude`'s `node` recipe runs that test too.
 
+**Export contract.**
+
+- `export.js` loads the page with JavaScript off, offline, at a 1920×1080 viewport with print media.
+  Playwright's `page.evaluate` still works with page scripts off, so it does the overflow and clipping checks.
+  The PDF is rendered to a buffer, checked, then written with `build.js`'s `writeFileAtomic`.
+- With scripts off, export's console check catches CSP and failed-load messages. An interaction's
+  thrown error only surfaces in the JavaScript-on runtime walk (Q13), which fails on any console or page error.
+- `package.json` stays CommonJS (no `"type": "module"`), because `~/.claude`'s `node` recipe loads
+  the scaffold's `.js` files under it. Playwright is pinned to an exact version.
+
 ## Open Questions
 
 ### Q12: What does a slide with builds show when you navigate back into it?
 
 - [x] Its finished state (recommended): while the slide is still hidden, `deck.js` calls `step(+1)` until it returns false, with transitions off, and then shows it. This matches PowerPoint and reveal.js, and no hook changes.
 - [ ] Its start state: reset on `leave` and nothing more. This is simpler, but re-showing a point means clicking through the build again, live.
+
+### Q13: What do a deck's browser tests run against?
+
+- [x] A fixture deck plus the deck's own build (recommended): the fixture covers each way `export.js` can fail, and verify also exports the deck's own build to a temp file and walks every slide forward and back with JavaScript on. Every `-slides` row gets checked in a real browser for overflow, flashes and console errors; the cost is a few seconds per verify and needing Chromium.
+- [ ] A fixture deck only: proves `export.js` and the runtime work, but a deck's own overflowing slide or flashing interaction only shows up at `just export` or live on stage.
+- [ ] The deck's own build only: no fixture to maintain, but on a fresh scaffold with no slides the tests exercise nothing, and export's failure modes go untested.
 
 ## Resolved
 
