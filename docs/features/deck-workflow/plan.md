@@ -1,7 +1,7 @@
 ---
 slug: deck-workflow
 title: HTML presentation (deck) workflow
-status: in-progress
+status: shipped
 created: 2026-11-20
 ---
 
