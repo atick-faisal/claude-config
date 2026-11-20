@@ -1,0 +1,238 @@
+/*
+ * Deck base styles: a light theme on a 1920×1080 stage.
+ *
+ * Without JavaScript (print, the PDF export) every slide is a full 1920×1080 page in its
+ * final, fully built state. Everything that only belongs to the live presentation sits
+ * under `@media screen` and `html.deck--live`, which build.js sets in <head>.
+ *
+ * Slide sizes are in px on purpose: the stage is always 1920×1080 and is scaled as a
+ * whole, so 48px on a slide is 48px of a 1080p frame on any screen.
+ */
+
+/* --brand-* tokens: /deck-init fills these from docs/brand.md. Neutral placeholders until then.
+   Fonts must be local: add @font-face rules with url('assets/fonts/…') and build.js inlines them. */
+:root {
+  --brand-font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --brand-font-heading: var(--brand-font-body);
+  --brand-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --brand-text: #1d1d1f;
+  --brand-muted: #6e6e73;
+  --brand-background: #ffffff;
+  --brand-surface: #f4f4f6;
+  --brand-primary: #2550c8;
+  --brand-accent: #d9480f;
+}
+
+/* Structural tokens: not branding. */
+:root {
+  color-scheme: light;
+  --deck-padding: 96px 128px;
+  --deck-gap: 32px;
+  --deck-reveal-duration: 350ms;
+  --deck-letterbox: var(--brand-background);
+}
+
+@page {
+  size: 1920px 1080px;
+  margin: 0;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--brand-background);
+  color: var(--brand-text);
+  font-family: var(--brand-font-body);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ---- A slide: always one 1920×1080 box, one PDF page ---- */
+
+.deck > section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--deck-gap);
+  width: 1920px;
+  height: 1080px;
+  padding: var(--deck-padding);
+  overflow: hidden;
+  background: var(--brand-background);
+  font-size: 40px;
+  line-height: 1.4;
+  break-after: page;
+  break-inside: avoid;
+}
+
+.deck > section:last-child {
+  break-after: auto;
+}
+
+/* ---- Typography ---- */
+
+.deck h1,
+.deck h2,
+.deck h3 {
+  margin: 0;
+  font-family: var(--brand-font-heading);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.deck h1 {
+  font-size: 104px;
+}
+
+.deck h2 {
+  font-size: 72px;
+}
+
+.deck h3 {
+  font-size: 52px;
+}
+
+.deck p,
+.deck ul,
+.deck ol,
+.deck figure,
+.deck blockquote {
+  margin: 0;
+}
+
+.deck ul,
+.deck ol {
+  padding-left: 1.2em;
+}
+
+.deck li + li {
+  margin-top: 0.4em;
+}
+
+.deck code,
+.deck pre {
+  font-family: var(--brand-font-mono);
+  font-size: 0.85em;
+}
+
+.deck pre {
+  margin: 0;
+  padding: 32px 40px;
+  background: var(--brand-surface);
+  border-radius: 12px;
+}
+
+.deck a {
+  color: var(--brand-primary);
+}
+
+.deck img,
+.deck svg {
+  max-width: 100%;
+}
+
+.deck .muted {
+  color: var(--brand-muted);
+}
+
+/* ---- Live presentation only ---- */
+
+@media screen {
+  html.deck--live,
+  html.deck--live body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--deck-letterbox);
+  }
+
+  /* deck.js sets --deck-scale, --deck-x and --deck-y to fit the stage to the window. */
+  html.deck--live .deck {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 1080px;
+    transform-origin: 0 0;
+    transform: translate(var(--deck-x, 0px), var(--deck-y, 0px)) scale(var(--deck-scale, 1));
+  }
+
+  html.deck--live .deck > section {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* display: none, not visibility: a hidden slide runs no transitions, so whatever deck.js
+     changes on it while hidden (a reset, a catch-up) is already in place when it shows. */
+  html.deck--live .deck > section:not(.is-current) {
+    display: none;
+  }
+
+  /* The no-flash rule: unrevealed parts are hidden by default, before any slide is shown.
+     JavaScript only adds .is-revealed; it never hides a part on a visible slide to set it up. */
+  html.deck--live [data-reveal] {
+    transition:
+      opacity var(--deck-reveal-duration) ease,
+      visibility var(--deck-reveal-duration);
+  }
+
+  html.deck--live [data-reveal]:not(.is-revealed) {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .deck-progress {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 4px;
+    background: var(--brand-primary);
+    opacity: 0.35;
+    transform: scaleX(var(--deck-progress, 0));
+    transform-origin: 0 50%;
+    transition: transform 200ms ease;
+    pointer-events: none;
+  }
+
+  .deck-jump {
+    position: fixed;
+    right: 24px;
+    bottom: 20px;
+    padding: 4px 14px;
+    border-radius: 8px;
+    background: var(--brand-surface);
+    color: var(--brand-text);
+    font: 600 20px/1.4 var(--brand-font-body);
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 15%);
+  }
+
+  .deck-jump::before {
+    content: '→ ';
+    color: var(--brand-muted);
+  }
+
+  .deck-jump[hidden] {
+    display: none;
+  }
+}
+
+@media screen and (prefers-reduced-motion: reduce) {
+  html.deck--live [data-reveal],
+  .deck-progress {
+    transition: none;
+  }
+}
+
+@media print {
+  .deck-progress,
+  .deck-jump {
+    display: none;
+  }
+}

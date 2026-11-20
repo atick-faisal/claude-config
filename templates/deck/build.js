@@ -471,6 +471,10 @@ function renderShell({ title, css, slides, js }) {
     `<title>${escapeHtml(title)}</title>`,
     // Without this the browser requests /favicon.ico, which the CSP blocks with a console error.
     '<link rel="icon" href="data:,">',
+    // Live mode from the first paint. The runtime sits at the end of a body that can be
+    // megabytes of inlined images, and Chrome may paint the stacked, fully built slides
+    // before it gets there. With JavaScript off (the PDF export) this never runs.
+    "<script>document.documentElement.classList.add('deck--live')</script>",
     '<style>',
     css.trim(),
     '</style>',
