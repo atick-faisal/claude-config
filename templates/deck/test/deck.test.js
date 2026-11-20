@@ -15,6 +15,8 @@ const {
   fitStage,
   progressOf,
   indexForHash,
+  fuzzyScore,
+  searchSlides,
   createController,
   createKeyHandler,
 } = require('../js/deck.js');
@@ -102,6 +104,7 @@ describe('actionForKey', () => {
     assert.equal(key('f'), 'fullscreen');
     assert.equal(key('F', { shiftKey: true }), 'fullscreen');
     assert.equal(key('7'), '7');
+    assert.equal(key('/'), 'search');
   });
 
   test('leaves browser chords, IME input and unknown keys alone', () => {
@@ -109,7 +112,7 @@ describe('actionForKey', () => {
     assert.equal(key('p', { ctrlKey: true }), null);
     assert.equal(key('f', { altKey: true }), null);
     assert.equal(key('ArrowRight', { isComposing: true }), null);
-    assert.equal(key('/'), null, '/ stays free for the slide search');
+    assert.equal(key('/', { metaKey: true }), null);
     assert.equal(key('x'), null);
   });
 });
@@ -166,6 +169,46 @@ describe('indexForHash', () => {
     assert.equal(indexForHash('#nope', ids), null);
     assert.equal(indexForHash('#0', ids), null);
     assert.equal(indexForHash('#%E2', ids), null, 'malformed escapes must not throw');
+  });
+});
+
+describe('fuzzyScore', () => {
+  test('matches a case-insensitive subsequence, ignoring spaces in the query', () => {
+    assert.notEqual(fuzzyScore('gom', 'Geometry of Meaning'), null);
+    assert.notEqual(fuzzyScore('GEO mean', 'Geometry of Meaning'), null);
+    assert.notEqual(fuzzyScore('', 'anything'), null);
+  });
+
+  test('letters out of order or missing do not match', () => {
+    assert.equal(fuzzyScore('cm', 'Magic'), null);
+    assert.equal(fuzzyScore('xyz', 'Geometry of Meaning'), null);
+    assert.equal(fuzzyScore('a', ''), null);
+  });
+
+  test('a run of letters and word starts score higher than scattered letters', () => {
+    assert.ok(fuzzyScore('abc', 'xabcx') > fuzzyScore('abc', 'xaxbxcx'), 'a run');
+    assert.ok(fuzzyScore('qa', 'Questions and answers') > fuzzyScore('qa', 'Quarterly'), 'a word start');
+  });
+});
+
+describe('searchSlides', () => {
+  const titles = ['Welcome', 'Very large scale', 'Vectors in practice', 'Questions', ''];
+
+  test('lists matches best first, ties in slide order, with their slide index', () => {
+    const results = searchSlides('vec', titles);
+    assert.deepEqual(results.map((r) => r.index), [2, 1]);
+    assert.equal(results[0].title, 'Vectors in practice');
+    assert.deepEqual(searchSlides('qu', titles).map((r) => r.index), [3]);
+  });
+
+  test('an empty query lists the first slides in order, capped', () => {
+    const many = Array.from({ length: 20 }, (_, i) => `Slide ${i}`);
+    assert.deepEqual(searchSlides('', many).map((r) => r.index), [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(searchSlides('', many, 3).map((r) => r.index), [0, 1, 2]);
+  });
+
+  test('no match gives an empty list', () => {
+    assert.deepEqual(searchSlides('zzz', titles), []);
   });
 });
 
@@ -344,6 +387,7 @@ describe('createKeyHandler', () => {
       controller,
       toggleFullscreen: () => calls.push('fullscreen'),
       showDigits: (d) => shown.push(d),
+      openSearch: () => calls.push('search'),
     });
     const press = (...list) => list.map((k) => handle({ key: k }));
     return { calls, shown, press };
@@ -389,6 +433,13 @@ describe('createKeyHandler', () => {
     const { calls, press } = keys(5);
     press('PageDown', 'PageUp', 'Home', 'End', 'f');
     assert.deepEqual(calls, ['next', 'prev', 'goTo 0', 'goTo 4', 'fullscreen']);
+  });
+
+  test('/ opens the search and drops a half-typed number', () => {
+    const { calls, shown, press } = keys();
+    assert.deepEqual(press('4', '/'), [true, true]);
+    assert.deepEqual(calls, ['search']);
+    assert.deepEqual(shown, ['4', '']);
   });
 });
 
