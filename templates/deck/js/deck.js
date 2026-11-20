@@ -1,7 +1,9 @@
 /**
  * Deck runtime: a 1920×1080 stage scaled to the screen, keyboard and clicker navigation,
- * `F` for fullscreen, a subtle progress bar, number + Enter to jump, and the interaction
- * registry. Vanilla JS, no dependencies.
+ * `F` for fullscreen, a subtle progress bar, number + Enter to jump, `/` to search slide
+ * titles, and the interaction registry. Vanilla JS, no dependencies.
+ *
+ * A slide's search title is its data-title attribute if set, else its first h1–h3.
  *
  * Slides are the <section> children of <main class="deck">. The authored markup is each
  * slide's FINAL state: print and the PDF export run with JavaScript off and show exactly
@@ -32,6 +34,7 @@
   const JUMP_TIMEOUT_MS = 4000;
   // A step() that never returns false would hang the back-navigation catch-up.
   const MAX_CATCH_UP_STEPS = 500;
+  const MAX_SEARCH_RESULTS = 8;
 
   const KEY_ACTIONS = Object.freeze({
     ArrowRight: 'next',
@@ -47,6 +50,7 @@
     Enter: 'enter',
     Escape: 'escape',
     Backspace: 'backspace',
+    '/': 'search',
   });
 
   // -------------------------------------------------------------------------
@@ -56,7 +60,7 @@
   /**
    * What a keydown means to the deck, or null to leave it to the browser.
    * Returns an action name, or the digit itself ('0'–'9') for number + Enter jumps.
-   * Any Ctrl/Cmd/Alt chord is the browser's (reload, print, zoom). '/' is left free for search.
+   * Any Ctrl/Cmd/Alt chord is the browser's (reload, print, zoom).
    */
   function actionForKey(event) {
     if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return null;
@@ -103,6 +107,44 @@
     if (/^[0-9]+$/.test(value)) return parseJump(value, ids.length);
     const index = ids.indexOf(value);
     return index === -1 ? null : index;
+  }
+
+  /**
+   * How well `query` matches `title` as a case-insensitive subsequence, or null for no match.
+   * Spaces in the query are ignored, so "geo mean" finds "Geometry of Meaning". A letter
+   * scores more when it continues a run or starts a word. Matching is greedy (leftmost),
+   * which is good enough for slide titles and keeps this a single pass.
+   */
+  function fuzzyScore(query, title) {
+    const q = query.toLowerCase().replace(/\s+/g, '');
+    const t = title.toLowerCase();
+    let score = 0;
+    let from = 0;
+    let previous = -2;
+    for (const ch of q) {
+      const at = t.indexOf(ch, from);
+      if (at === -1) return null;
+      score += 1;
+      if (at === previous + 1) score += 2;
+      if (at === 0 || !/[\p{L}\p{N}]/u.test(t[at - 1])) score += 3;
+      previous = at + ch.length - 1;
+      from = at + ch.length;
+    }
+    return score;
+  }
+
+  /**
+   * The slides whose titles match `query`, best first, ties in slide order, at most `limit`.
+   * An empty query matches every slide equally, so it lists the first slides in order.
+   *
+   * @returns {{index: number, title: string, score: number}[]}
+   */
+  function searchSlides(query, titles, limit = MAX_SEARCH_RESULTS) {
+    return titles
+      .map((title, index) => ({ index, title, score: fuzzyScore(query, title) }))
+      .filter((result) => result.score !== null)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, limit);
   }
 
   /** The interaction names a slide opts into. */
@@ -211,8 +253,9 @@
    * @param {ReturnType<typeof createController>} options.controller
    * @param {() => void} options.toggleFullscreen
    * @param {(digits: string) => void} options.showDigits '' hides the indicator
+   * @param {() => void} options.openSearch
    */
-  function createKeyHandler({ controller, toggleFullscreen, showDigits }) {
+  function createKeyHandler({ controller, toggleFullscreen, showDigits, openSearch }) {
     let digits = '';
     const setDigits = (value) => {
       digits = value;
@@ -246,6 +289,7 @@
       else if (action === 'first') controller.goTo(0);
       else if (action === 'last') controller.goTo(controller.count - 1);
       else if (action === 'fullscreen') toggleFullscreen();
+      else if (action === 'search') openSearch();
       return true;
     };
   }
@@ -257,6 +301,8 @@
     fitStage,
     progressOf,
     indexForHash,
+    fuzzyScore,
+    searchSlides,
     createController,
     createKeyHandler,
   };
@@ -311,6 +357,87 @@
     return el;
   }
 
+  /**
+   * The `/` overlay: an input and a list of matching slide titles. Arrows move the selection,
+   * Enter jumps, Esc or clicking away closes. While the input has focus, the deck's own key
+   * handler stands aside (isEditable), so typing digits or F here does not navigate.
+   */
+  function createSearchOverlay({ titles, goTo }) {
+    const box = document.createElement('div');
+    box.className = 'deck-search';
+    box.hidden = true;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Jump to slide…';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'Search slide titles');
+    const list = document.createElement('ol');
+    box.append(input, list);
+    document.body.append(box);
+
+    let results = [];
+    let selected = 0;
+
+    function render() {
+      list.replaceChildren(
+        ...results.map((result, i) => {
+          const item = document.createElement('li');
+          item.textContent = result.title || `Slide ${result.index + 1}`;
+          item.dataset.number = String(result.index + 1);
+          item.classList.toggle('is-selected', i === selected);
+          return item;
+        }),
+      );
+    }
+
+    function close() {
+      box.hidden = true;
+      input.blur();
+    }
+
+    function choose(i) {
+      const result = results[i];
+      close();
+      if (result) goTo(result.index);
+    }
+
+    input.addEventListener('input', () => {
+      results = searchSlides(input.value, titles);
+      selected = 0;
+      render();
+    });
+    input.addEventListener('blur', () => {
+      box.hidden = true;
+    });
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') close();
+      else if (event.key === 'Enter') choose(selected);
+      else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        selected = Math.max(0, Math.min(results.length - 1, selected + delta));
+        render();
+      } else return;
+      event.preventDefault();
+    });
+    // mousedown, not click: by the time a click fires, the input has blurred and closed the list.
+    list.addEventListener('mousedown', (event) => {
+      const item = event.target.closest('li');
+      if (!item) return;
+      event.preventDefault();
+      choose([...list.children].indexOf(item));
+    });
+
+    return {
+      open() {
+        input.value = '';
+        input.dispatchEvent(new Event('input'));
+        box.hidden = false;
+        input.focus();
+      },
+    };
+  }
+
   function boot() {
     booted = true;
     const html = document.documentElement;
@@ -357,10 +484,16 @@
     fit();
     window.addEventListener('resize', fit);
 
+    const titles = slides.map((slide) =>
+      (slide.dataset.title ?? slide.querySelector('h1, h2, h3')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+    const search = createSearchOverlay({ titles, goTo: (index) => controller.goTo(index) });
+
     let jumpTimer;
     const handleKey = createKeyHandler({
       controller,
       toggleFullscreen,
+      openSearch: search.open,
       showDigits(digits) {
         clearTimeout(jumpTimer);
         jump.textContent = digits;

@@ -221,6 +221,69 @@ body {
   .deck-jump[hidden] {
     display: none;
   }
+
+  /* The `/` slide search. Outside the stage, so these px are screen px, like .deck-jump. */
+  .deck-search {
+    position: fixed;
+    top: 12vh;
+    left: 50%;
+    width: min(640px, 90vw);
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--brand-background);
+    color: var(--brand-text);
+    font: 20px/1.4 var(--brand-font-body);
+    box-shadow: 0 8px 32px rgb(0 0 0 / 20%);
+    transform: translateX(-50%);
+  }
+
+  .deck-search[hidden] {
+    display: none;
+  }
+
+  .deck-search input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--brand-muted);
+    border-radius: 8px;
+    background: var(--brand-background);
+    color: inherit;
+    font: inherit;
+  }
+
+  .deck-search ol {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .deck-search li {
+    padding: 6px 12px;
+    border-radius: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+
+  .deck-search li::before {
+    content: attr(data-number);
+    display: inline-block;
+    min-width: 2.5em;
+    color: var(--brand-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .deck-search li.is-selected {
+    background: var(--brand-surface);
+  }
+
+  .deck-search ol:empty::after {
+    content: 'No matching slide';
+    display: block;
+    padding: 6px 12px;
+    color: var(--brand-muted);
+  }
 }
 
 @media screen and (prefers-reduced-motion: reduce) {
@@ -232,7 +295,8 @@ body {
 
 @media print {
   .deck-progress,
-  .deck-jump {
+  .deck-jump,
+  .deck-search {
     display: none;
   }
 }
