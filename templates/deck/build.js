@@ -9,9 +9,13 @@
  * - Every local src/href/url() resolves against the deck root (`assets/x.png`), so a chunk
  *   reads the same wherever it lives.
  * - Every error is collected and reported at once; nothing is written unless all pass.
+ * - A time budget is an overlay on the base, never a copy: budgets/<N>min/budget.md drops
+ *   slides by id, and budgets/<N>min/slides/<topic>.html replaces only the chunks it trims.
  *
  * Usage: node build.js                      build the deck
- *        node build.js --check [--complete] check chunks are fresh against their md; writes nothing
+ *        node build.js <N>min               build budgets/<N>min/ over the base into build/<N>min/
+ *        node build.js --check [--complete] check chunks (and budget overrides) are fresh
+ *                                           against their md; writes nothing
  * Runtime: Node built-ins only.
  */
 
@@ -32,6 +36,8 @@ const CSP = [
 ].join('; ');
 
 const TOPIC_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const BUDGET_RE = /^[1-9][0-9]*min$/;
+const SLIDE_ID_RE = /^[A-Za-z][\w.:-]*$/;
 
 const IMAGE_MIME = Object.freeze({
   '.png': 'image/png',
@@ -128,21 +134,20 @@ function writeFileAtomic(file, content) {
 // ---------------------------------------------------------------------------
 
 /**
- * Read the deck title and chapter order from docs/roadmap.md.
+ * Walk Markdown the way the deck reads its docs: lines inside ``` fences are skipped, the
+ * first `# ` heading is the title, and only the first list under the `## ` heading matching
+ * `sectionRe` is collected. A `###` inside the section does not end it; a non-indented,
+ * non-item line ends the list.
  *
- * Title: the first `# ` heading. Chapters: the first ordered list under `## Chapters`,
- * one `[Title](<topic>.md)` link per item. Headings inside ``` fences are ignored.
- *
- * @returns {{title: string, chapters: {title: string, topic: string}[], errors: string[]}}
+ * @returns {{title: string, found: boolean, items: {lineNo: number, text: string}[]}}
  */
-function parseRoadmap(text, label = 'docs/roadmap.md') {
-  const errors = [];
+function readSectionList(text, sectionRe, itemRe) {
   let title = '';
   let inFence = false;
-  let section = null; // the current `## ` heading's text
+  let inSection = false;
+  let found = false;
   let listState = 'before'; // before → in → after: only the first list counts
-  let foundSection = false;
-  const chapters = [];
+  const items = [];
 
   for (const [i, line] of text.split(/\r?\n/).entries()) {
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
@@ -152,37 +157,180 @@ function parseRoadmap(text, label = 'docs/roadmap.md') {
     const heading = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
     if (heading) {
       if (heading[1] === '#' && !title) title = heading[2];
-      if (heading[1].length <= 2) section = heading[1] === '##' ? heading[2] : null;
-      if (section !== null && /^chapters$/i.test(section)) foundSection = true;
+      if (heading[1].length <= 2) inSection = heading[1] === '##' && sectionRe.test(heading[2]);
+      if (inSection) found = true;
       continue;
     }
-    if (section === null || !/^chapters$/i.test(section) || listState === 'after') continue;
+    if (!inSection || listState === 'after') continue;
 
-    const item = /^\d+[.)]\s+(.*)$/.exec(line);
+    const item = itemRe.exec(line);
     if (item) {
       listState = 'in';
-      const link = /\[([^\]]+)\]\(\s*(?:\.\/)?([^)\s]+)\.md\s*\)/.exec(item[1]);
-      if (!link) {
-        errors.push(`${label}:${i + 1}: chapter item needs a [Title](<topic>.md) link`);
-      } else if (!TOPIC_RE.test(link[2])) {
-        errors.push(`${label}:${i + 1}: chapter topic "${link[2]}" must be lowercase kebab-case`);
-      } else if (chapters.some((c) => c.topic === link[2])) {
-        errors.push(`${label}:${i + 1}: chapter "${link[2]}" is listed twice`);
-      } else {
-        chapters.push({ title: link[1].trim(), topic: link[2] });
-      }
+      items.push({ lineNo: i + 1, text: item[1] });
     } else if (listState === 'in' && line.trim() !== '' && !/^\s/.test(line)) {
-      listState = 'after'; // a non-indented, non-item line ends the list
+      listState = 'after';
+    }
+  }
+  return { title, found, items };
+}
+
+/**
+ * Read the deck title and chapter order from docs/roadmap.md.
+ *
+ * Title: the first `# ` heading. Chapters: the first ordered list under `## Chapters`,
+ * one `[Title](<topic>.md)` link per item. Headings inside ``` fences are ignored.
+ *
+ * @returns {{title: string, chapters: {title: string, topic: string}[], errors: string[]}}
+ */
+function parseRoadmap(text, label = 'docs/roadmap.md') {
+  const errors = [];
+  const chapters = [];
+  const { title, found, items } = readSectionList(text, /^chapters$/i, /^\d+[.)]\s+(.*)$/);
+
+  for (const { lineNo, text: item } of items) {
+    const link = /\[([^\]]+)\]\(\s*(?:\.\/)?([^)\s]+)\.md\s*\)/.exec(item);
+    if (!link) {
+      errors.push(`${label}:${lineNo}: chapter item needs a [Title](<topic>.md) link`);
+    } else if (!TOPIC_RE.test(link[2])) {
+      errors.push(`${label}:${lineNo}: chapter topic "${link[2]}" must be lowercase kebab-case`);
+    } else if (chapters.some((c) => c.topic === link[2])) {
+      errors.push(`${label}:${lineNo}: chapter "${link[2]}" is listed twice`);
+    } else {
+      chapters.push({ title: link[1].trim(), topic: link[2] });
     }
   }
 
   if (!title) errors.push(`${label}: no "# " title heading`);
-  if (!foundSection) errors.push(`${label}: no "## Chapters" section`);
+  if (!found) errors.push(`${label}: no "## Chapters" section`);
   else if (chapters.length === 0 && errors.length === 0) {
     errors.push(`${label}: the "## Chapters" section has no ordered list of [Title](<topic>.md) links`);
   }
   return { title, chapters, errors };
 }
+
+// ---------------------------------------------------------------------------
+// Time budgets
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the drop list from a budgets/<N>min/budget.md: the first bullet list under `## Drop`,
+ * one slide id per item, in backticks or bare, optionally followed by why it was cut:
+ *
+ *   - `middle-2` — the derivation; the intuition on middle-1 carries it
+ *
+ * No `## Drop` section means nothing is dropped: a budget may only trim chunks.
+ *
+ * @returns {{drop: string[], errors: string[]}}
+ */
+function parseBudget(text, label) {
+  const errors = [];
+  const drop = [];
+  const { items } = readSectionList(text, /^drop$/i, /^[-*+]\s+(.*)$/);
+  for (const { lineNo, text: item } of items) {
+    const id = (/^`([^`]+)`/.exec(item) ?? /^(\S+)/.exec(item))?.[1];
+    if (!id || !SLIDE_ID_RE.test(id)) {
+      errors.push(`${label}:${lineNo}: a drop item must start with a slide id, e.g. \`middle-2\``);
+    } else if (drop.includes(id)) {
+      errors.push(`${label}:${lineNo}: slide "${id}" is dropped twice`);
+    } else {
+      drop.push(id);
+    }
+  }
+  return { drop, errors };
+}
+
+/**
+ * budgets/<budget>/slides/*.html, as topic → relative path. An override for a chapter the
+ * roadmap does not list is an error: it would silently never be built.
+ */
+function readOverrides(root, budget, topics, errors) {
+  const rel = `budgets/${budget}/slides`;
+  let names;
+  try {
+    names = fs.readdirSync(path.join(root, 'budgets', budget, 'slides'));
+  } catch (err) {
+    if (err.code === 'ENOENT') return new Map();
+    throw err;
+  }
+  const overrides = new Map();
+  for (const name of names.filter((n) => n.endsWith('.html')).sort()) {
+    const topic = name.slice(0, -'.html'.length);
+    if (topics.has(topic)) overrides.set(topic, `${rel}/${name}`);
+    else errors.push(`${rel}/${name} overrides no chapter listed in docs/roadmap.md`);
+  }
+  return overrides;
+}
+
+/** The <N>min folders under budgets/, shortest first. Other folders are not budgets. */
+function listBudgets(root) {
+  try {
+    return fs
+      .readdirSync(path.join(root, 'budgets'), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && BUDGET_RE.test(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+}
+
+/** The value of one attribute in a start tag's attribute text, or null. */
+function attrValue(attrSrc, name) {
+  for (const m of attrSrc.matchAll(ATTR_RE)) {
+    if (m[2].toLowerCase() === name) return decodeEntities(unquote(m[4]));
+  }
+  return null;
+}
+
+/**
+ * Cut every top-level <section> whose id is in `drop` out of a chunk. Slides are the
+ * top-level sections, so a nested section's id never matches. Each id cut is added to
+ * `dropped`, so the caller can report ids that matched nothing.
+ */
+function dropSlides(html, drop, dropped, label, errors) {
+  const tags = /<!--[\s\S]*?-->|<(\/?)section\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+  let depth = 0;
+  let start = 0;
+  let id = null;
+  let kept = 0; // html before this index has been copied to `out`
+  let out = '';
+  for (const m of html.matchAll(tags)) {
+    if (m[1] === undefined) continue; // an HTML comment
+    if (m[1] === '') {
+      if (depth === 0) [start, id] = [m.index, attrValue(m[2], 'id')];
+      depth += 1;
+      continue;
+    }
+    if (depth === 0) {
+      errors.push(`${label}: a </section> has no opening tag`);
+      return html;
+    }
+    depth -= 1;
+    if (depth === 0 && id !== null && drop.has(id)) {
+      out += html.slice(kept, start);
+      kept = m.index + m[0].length;
+      dropped.add(id);
+    }
+  }
+  if (depth !== 0) {
+    errors.push(`${label}: a <section> is never closed`);
+    return html;
+  }
+  return out + html.slice(kept);
+}
+
+/** A budget's drop list and chunk overrides. Errors are collected, not thrown. */
+function readOverlay(root, budget, chapters, errors) {
+  const label = `budgets/${budget}/budget.md`;
+  const text = readRequired(root, label, errors);
+  const parsed = text === null ? { drop: [], errors: [] } : parseBudget(text, label);
+  errors.push(...parsed.errors);
+  const overrides = readOverrides(root, budget, new Set(chapters.map((c) => c.topic)), errors);
+  return { label, drop: new Set(parsed.drop), overrides };
+}
+
+const NO_OVERLAY = Object.freeze({ label: '', drop: new Set(), overrides: new Map() });
 
 // ---------------------------------------------------------------------------
 // Inlining
@@ -341,17 +489,24 @@ function renderShell({ title, css, slides, js }) {
 }
 
 /**
- * Assemble the standalone deck.
+ * Assemble the standalone deck, or one time budget of it.
  * @param {object} [options]
  * @param {string} [options.root] deck root (defaults to the folder holding this file)
- * @param {string} [options.outFile] output path (defaults to <root>/build/index.html)
+ * @param {string} [options.budget] e.g. '20min': apply budgets/20min/ over the base
+ * @param {string} [options.outFile] output path (defaults to <root>/build/[<budget>/]index.html)
  * @param {(message: string) => void} [options.warn] receives non-fatal warnings
- * @returns {{outFile: string, chapters: string[], skipped: string[], bytes: number, warnings: string[]}}
+ * @returns {{outFile: string, chapters: string[], skipped: string[], dropped: string[],
+ *   overridden: string[], bytes: number, warnings: string[]}}
  * @throws {BuildError} listing every error; nothing is written in that case
  */
 function build(options = {}) {
   const root = path.resolve(options.root ?? __dirname);
-  const outFile = path.resolve(options.outFile ?? path.join(root, 'build', 'index.html'));
+  const budget = options.budget ?? null;
+  if (budget !== null && !BUDGET_RE.test(budget)) {
+    throw new BuildError([`budget "${budget}" must be a number of minutes, e.g. 20min`]);
+  }
+  const outDir = budget === null ? path.join(root, 'build') : path.join(root, 'build', budget);
+  const outFile = path.resolve(options.outFile ?? path.join(outDir, 'index.html'));
   const warnings = [];
   const warn = (message) => {
     warnings.push(message);
@@ -360,23 +515,34 @@ function build(options = {}) {
   const errors = [];
   const ctx = (label) => ({ root, label, errors });
 
-  // 1. Chapters, in roadmap order. An unwritten chapter is skipped, not an error.
+  // 1. Chapters, in roadmap order. An unwritten chapter is skipped, not an error. A budget
+  //    swaps in its trimmed chunks, then cuts its dropped slides from whatever is built.
   const roadmapText = readRequired(root, 'docs/roadmap.md', errors);
   const roadmap = roadmapText === null ? { title: '', chapters: [], errors: [] } : parseRoadmap(roadmapText);
   errors.push(...roadmap.errors);
+  const overlay = budget === null ? NO_OVERLAY : readOverlay(root, budget, roadmap.chapters, errors);
   const built = [];
   const skipped = [];
+  const overridden = [];
+  const dropped = new Set();
   const chunks = [];
   for (const { topic } of roadmap.chapters) {
-    const label = `slides/${topic}.html`;
-    const file = path.join(root, 'slides', `${topic}.html`);
+    const base = `slides/${topic}.html`;
+    const label = overlay.overrides.get(topic) ?? base;
+    const file = path.join(root, ...label.split('/'));
     if (!fs.existsSync(file)) {
       skipped.push(topic);
-      warn(`chapter "${topic}" has no ${label} yet; skipped`);
+      warn(`chapter "${topic}" has no ${base} yet; skipped`);
       continue;
     }
     built.push(topic);
-    chunks.push(`<!-- ${label} -->\n${inlineHtmlResources(readText(file), ctx(label)).trim()}\n`);
+    if (label !== base) overridden.push(topic);
+    let chunk = readText(file);
+    if (overlay.drop.size > 0) chunk = dropSlides(chunk, overlay.drop, dropped, label, errors);
+    chunks.push(`<!-- ${label} -->\n${inlineHtmlResources(chunk, ctx(label)).trim()}\n`);
+  }
+  for (const id of overlay.drop) {
+    if (!dropped.has(id)) errors.push(`${overlay.label}: dropped slide "${id}" matches no slide in the deck`);
   }
 
   // 2. Stylesheet, runtime, interactions.
@@ -388,7 +554,15 @@ function build(options = {}) {
   if (errors.length > 0) throw new BuildError(errors);
   const html = renderShell({ title: roadmap.title, css: inlinedCss, slides: chunks.join('\n'), js });
   writeFileAtomic(outFile, html);
-  return { outFile, chapters: built, skipped, bytes: Buffer.byteLength(html), warnings };
+  return {
+    outFile,
+    chapters: built,
+    skipped,
+    dropped: [...dropped],
+    overridden,
+    bytes: Buffer.byteLength(html),
+    warnings,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -404,10 +578,38 @@ function sourceHeader(relMd, mdBytes) {
 }
 
 /**
- * Check every roadmap chapter's chunk against its md. Writes nothing.
+ * Check one chunk's source header against its chapter's md; record any problem in `errors`.
+ * @returns {boolean} true when the chunk is fresh
+ */
+function checkChunk(root, topic, relChunk, errors) {
+  const relMd = `docs/${topic}.md`;
+  const md = readBytes(path.join(root, 'docs', `${topic}.md`));
+  if (md === null) {
+    errors.push(`${relChunk} has no ${relMd}; write the md first, it is the source of truth`);
+    return false;
+  }
+  const expected = sourceHeader(relMd, md);
+  const header = SOURCE_HEADER_RE.exec(readText(path.join(root, ...relChunk.split('/'))));
+  if (!header) {
+    errors.push(`${relChunk} has no source header; add ${expected}`);
+  } else if (header[1].replace(/^\.\//, '') !== relMd) {
+    errors.push(`${relChunk} names source "${header[1]}", expected ${relMd}`);
+  } else if (!expected.endsWith(`sha256:${header[2].toLowerCase()} -->`)) {
+    errors.push(`${relChunk} is stale: ${relMd} changed since it was written; update the slides, then set ${expected}`);
+  } else {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check every roadmap chapter's chunk, and every budget's override chunk, against its md.
+ * Writes nothing.
  *
  * Fails on: a chunk whose md is missing, a chunk with no (or the wrong) source header, and a
- * stale chunk whose md changed since it was written. A chapter whose chunk is not written
+ * stale chunk whose md changed since it was written. A budget override is a trimmed copy of
+ * a chapter's chunk, so it carries the same header and goes stale the same way; an override
+ * for a chapter the roadmap does not list fails too. A chapter whose chunk is not written
  * yet is a warning, so a deck stays green between a chapter's md and slides steps;
  * `complete: true` (the final check) turns any missing md or chunk into an error.
  *
@@ -415,7 +617,8 @@ function sourceHeader(relMd, mdBytes) {
  * @param {string} [options.root] deck root (defaults to the folder holding this file)
  * @param {boolean} [options.complete] also fail on any chapter without both files
  * @param {(message: string) => void} [options.warn] receives non-fatal warnings
- * @returns {{fresh: string[], missing: string[], warnings: string[]}}
+ * @returns {{fresh: string[], missing: string[], overrides: string[], warnings: string[]}}
+ *   `fresh` holds topics; `overrides` holds the fresh override chunks' relative paths
  * @throws {BuildError} listing every problem at once
  */
 function check(options = {}) {
@@ -434,38 +637,28 @@ function check(options = {}) {
   const fresh = [];
   const missing = [];
   for (const { topic } of roadmap.chapters) {
-    const relMd = `docs/${topic}.md`;
     const relChunk = `slides/${topic}.html`;
-    const md = readBytes(path.join(root, 'docs', `${topic}.md`));
-    const chunk = readBytes(path.join(root, 'slides', `${topic}.html`));
-
-    if (chunk === null) {
+    if (!fs.existsSync(path.join(root, 'slides', `${topic}.html`))) {
       missing.push(topic);
-      const absent = md === null ? `${relMd} and ${relChunk}` : relChunk;
+      const relMd = `docs/${topic}.md`;
+      const absent = fs.existsSync(path.join(root, 'docs', `${topic}.md`)) ? relChunk : `${relMd} and ${relChunk}`;
       if (options.complete) errors.push(`chapter "${topic}" has no ${absent}`);
       else warn(`chapter "${topic}" has no ${absent} yet`);
       continue;
     }
-    if (md === null) {
-      errors.push(`${relChunk} has no ${relMd}; write the md first, it is the source of truth`);
-      continue;
-    }
+    if (checkChunk(root, topic, relChunk, errors)) fresh.push(topic);
+  }
 
-    const expected = sourceHeader(relMd, md);
-    const header = SOURCE_HEADER_RE.exec(chunk.toString('utf8'));
-    if (!header) {
-      errors.push(`${relChunk} has no source header; add ${expected}`);
-    } else if (header[1].replace(/^\.\//, '') !== relMd) {
-      errors.push(`${relChunk} names source "${header[1]}", expected ${relMd}`);
-    } else if (!expected.endsWith(`sha256:${header[2].toLowerCase()} -->`)) {
-      errors.push(`${relChunk} is stale: ${relMd} changed since it was written; update the slides, then set ${expected}`);
-    } else {
-      fresh.push(topic);
+  const topics = new Set(roadmap.chapters.map((c) => c.topic));
+  const overrides = [];
+  for (const budget of listBudgets(root)) {
+    for (const [topic, relChunk] of readOverrides(root, budget, topics, errors)) {
+      if (checkChunk(root, topic, relChunk, errors)) overrides.push(relChunk);
     }
   }
 
   if (errors.length > 0) throw new BuildError(errors, 'Check');
-  return { fresh, missing, warnings };
+  return { fresh, missing, overrides, warnings };
 }
 
 /** A file's raw bytes, or null when it does not exist. */
@@ -478,19 +671,34 @@ function readBytes(file) {
   }
 }
 
-const USAGE = 'usage: node build.js | node build.js --check [--complete]';
+const USAGE = 'usage: node build.js [<N>min] | node build.js --check [--complete]';
+
+/** The one thing wrong with the command line, or null. */
+function usageProblem(argv) {
+  const isCheck = argv.includes('--check');
+  const budgets = argv.filter((a) => BUDGET_RE.test(a));
+  const unknown = argv.filter((a) => a !== '--check' && a !== '--complete' && !BUDGET_RE.test(a));
+  if (unknown.length > 0) return `unknown argument(s): ${unknown.join(' ')}`;
+  if (argv.includes('--complete') && !isCheck) return '--complete needs --check';
+  if (isCheck && budgets.length > 0) return '--check already covers every budget; give no budget';
+  if (budgets.length > 1) return 'give at most one budget';
+  return null;
+}
 
 function main(argv) {
-  const unknown = argv.filter((a) => a !== '--check' && a !== '--complete');
-  if (unknown.length > 0 || (argv.includes('--complete') && !argv.includes('--check'))) {
-    console.error(`${unknown.length ? `unknown argument(s): ${unknown.join(' ')}` : '--complete needs --check'}\n${USAGE}`);
+  const problem = usageProblem(argv);
+  if (problem) {
+    console.error(`${problem}\n${USAGE}`);
     process.exitCode = 2;
     return;
   }
   if (argv.includes('--check')) {
     try {
       const result = check({ complete: argv.includes('--complete') });
-      console.log(`Checked: ${result.fresh.length} chunk(s) fresh, ${result.missing.length} chapter(s) not written yet`);
+      console.log(
+        `Checked: ${result.fresh.length} chunk(s) fresh, ${result.overrides.length} budget override(s) fresh, ` +
+          `${result.missing.length} chapter(s) not written yet`,
+      );
     } catch (err) {
       console.error(err instanceof BuildError ? err.message : err);
       process.exitCode = 1;
@@ -498,9 +706,11 @@ function main(argv) {
     return;
   }
   try {
-    const result = build();
+    const budget = argv.find((a) => BUDGET_RE.test(a));
+    const result = build({ budget });
     const kib = (result.bytes / 1024).toFixed(1);
-    console.log(`Built ${path.relative(process.cwd(), result.outFile)}: ${result.chapters.length} chapter(s), ${kib} KiB`);
+    const trimmed = budget ? `, ${result.dropped.length} slide(s) dropped, ${result.overridden.length} chunk(s) trimmed` : '';
+    console.log(`Built ${path.relative(process.cwd(), result.outFile)}: ${result.chapters.length} chapter(s)${trimmed}, ${kib} KiB`);
   } catch (err) {
     console.error(err instanceof BuildError ? err.message : err);
     process.exitCode = 1;
@@ -516,6 +726,8 @@ module.exports = {
   BuildError,
   CSP,
   parseRoadmap,
+  parseBudget,
+  dropSlides,
   inlineHtmlResources,
   inlineCssResources,
   escapeInlineScript,
