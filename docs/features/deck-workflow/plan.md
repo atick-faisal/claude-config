@@ -213,6 +213,8 @@ the `skills/runbook/SKILL.md` precedent: instantiate into the target repo and wr
 
 ## Open Questions
 
+## Resolved
+
 ### Q12: What does a slide with builds show when you navigate back into it?
 
 - [x] Its finished state (recommended): while the slide is still hidden, `deck.js` calls `step(+1)` until it returns false, with transitions off, and then shows it. This matches PowerPoint and reveal.js, and no hook changes.
@@ -223,8 +225,6 @@ the `skills/runbook/SKILL.md` precedent: instantiate into the target repo and wr
 - [x] A fixture deck plus the deck's own build (recommended): the fixture covers each way `export.js` can fail, and verify also exports the deck's own build to a temp file and walks every slide forward and back with JavaScript on. Every `-slides` row gets checked in a real browser for overflow, flashes and console errors; the cost is a few seconds per verify and needing Chromium.
 - [ ] A fixture deck only: proves `export.js` and the runtime work, but a deck's own overflowing slide or flashing interaction only shows up at `just export` or live on stage.
 - [ ] The deck's own build only: no fixture to maintain, but on a fresh scaffold with no slides the tests exercise nothing, and export's failure modes go untested.
-
-## Resolved
 
 ### Q10: How does an interactive or animated slide show its final state in the PDF?
 
