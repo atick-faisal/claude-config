@@ -1,0 +1,33 @@
+default:
+    @just --list --unsorted
+
+# Run every check. THE entrypoint after implementing a task.
+verify:
+    #!/usr/bin/env bash
+    failed=()
+    for check in check test; do
+        just "$check" || failed+=("$check")
+    done
+    if (( ${#failed[@]} )); then
+        printf '\nFAILED: %s\n' "${failed[*]}"
+        exit 1
+    fi
+    printf '\nAll checks passed.\n'
+
+# Every slide chunk is fresh against its chapter md. `just check --complete` (the final check)
+# also fails on any chapter whose md or slides are not written yet.
+check *flags:
+    node build.js --check {{flags}}
+
+# Build, runtime and export tests, plus a live walk of this deck's own build and every budget.
+# The browser tests need Playwright: run `npm install` once.
+test:
+    node --test
+
+# Build build/index.html, or a time budget into build/<N>min/: `just build 20min`.
+build budget="":
+    node build.js {{budget}}
+
+# Build, then export the PDF next to the html: `just export 20min`.
+export budget="": (build budget)
+    node export.js {{budget}}
