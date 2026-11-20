@@ -8,7 +8,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { build, BuildError, CSP, parseRoadmap, escapeInlineScript, isExternalUrl } = require('../build.js');
+const { build, check, sourceHeader, BuildError, CSP, parseRoadmap, escapeInlineScript, isExternalUrl } = require('../build.js');
+const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 
 // A 1×1 transparent PNG.
 const PNG = Buffer.from(
@@ -277,6 +279,113 @@ describe('build', () => {
 
   test('a commented-out CSS url() is neither inlined nor reported', () => {
     assert.doesNotThrow(() => buildDeck(makeDeck({ 'css/style.css': '/* url(https://x.org/a.png) */ a { color: red; }' })));
+  });
+});
+
+describe('check', () => {
+  const MD = { opening: '# Opening\n\nWhy this matters.\n', middle: '# Middle\n', closing: '# Closing\n' };
+
+  /** A chunk carrying a fresh header for `md`. */
+  const chunkFor = (topic, md = MD[topic]) => `${sourceHeader(`docs/${topic}.md`, md)}\n<section id="${topic}-1"></section>\n`;
+
+  /** A deck whose three chapters all have an md and a fresh chunk, plus overrides. */
+  function freshDeck(files = {}) {
+    const base = {};
+    for (const topic of Object.keys(MD)) {
+      base[`docs/${topic}.md`] = MD[topic];
+      base[`slides/${topic}.html`] = chunkFor(topic);
+    }
+    return makeDeck({ ...base, ...files });
+  }
+
+  function checkErrors(root, options = {}) {
+    try {
+      check({ root, warn: () => {}, ...options });
+    } catch (err) {
+      assert.ok(err instanceof BuildError, `expected a BuildError, got ${err}`);
+      assert.match(err.message, /^Check failed/);
+      return err.errors;
+    }
+    assert.fail('expected the check to fail');
+  }
+
+  test('passes when every chunk matches its md, and writes nothing', () => {
+    const root = freshDeck();
+    const result = check({ root, warn: () => {} });
+    assert.deepEqual(result.fresh, ['opening', 'middle', 'closing']);
+    assert.deepEqual(result.missing, []);
+    assert.ok(!fs.existsSync(path.join(root, 'build')));
+  });
+
+  test('the header hash is what shasum -a 256 prints for the md', () => {
+    const hex = crypto.createHash('sha256').update(MD.opening).digest('hex');
+    assert.equal(sourceHeader('docs/opening.md', Buffer.from(MD.opening)), `<!-- source: docs/opening.md sha256:${hex} -->`);
+  });
+
+  test('fails naming the stale chunk when its md changed', () => {
+    const errors = checkErrors(freshDeck({ 'docs/middle.md': '# Middle, rewritten\n' }));
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /^slides\/middle\.html is stale: docs\/middle\.md changed/);
+    assert.ok(errors[0].includes(sourceHeader('docs/middle.md', '# Middle, rewritten\n')), 'tells the fix');
+  });
+
+  test('a chunk without its md fails', () => {
+    assertSomeMatch(checkErrors(freshDeck({ 'docs/closing.md': null })), /slides\/closing\.html has no docs\/closing\.md/);
+  });
+
+  test('a chunk with no header, or a header naming another md, fails', () => {
+    const errors = checkErrors(
+      freshDeck({
+        'slides/opening.html': '<section id="opening-1"></section>',
+        'slides/middle.html': chunkFor('opening').replace('docs/opening.md', 'docs/other.md'),
+      }),
+    );
+    assertSomeMatch(errors, /slides\/opening\.html has no source header; add <!-- source: docs\/opening\.md sha256:[0-9a-f]{64} -->/);
+    assertSomeMatch(errors, /slides\/middle\.html names source "docs\/other\.md", expected docs\/middle\.md/);
+  });
+
+  test('accepts ./ in the source path and an uppercase hash', () => {
+    const header = sourceHeader('docs/opening.md', MD.opening);
+    const loose = header.replace('docs/', './docs/').replace(/[0-9a-f]{64}/, (h) => h.toUpperCase());
+    assert.doesNotThrow(() => check({ root: freshDeck({ 'slides/opening.html': `${loose}\n<section></section>` }), warn: () => {} }));
+  });
+
+  test('an unwritten chunk is a warning, so verify stays green between md and slides', () => {
+    const messages = [];
+    const root = freshDeck({ 'slides/middle.html': null, 'docs/closing.md': null, 'slides/closing.html': null });
+    const result = check({ root, warn: (m) => messages.push(m) });
+    assert.deepEqual(result.fresh, ['opening']);
+    assert.deepEqual(result.missing, ['middle', 'closing']);
+    assertSomeMatch(messages, /"middle" has no slides\/middle\.html yet/);
+    assertSomeMatch(messages, /"closing" has no docs\/closing\.md and slides\/closing\.html yet/);
+  });
+
+  test('--complete turns every missing md or chunk into an error', () => {
+    const root = freshDeck({ 'slides/middle.html': null, 'docs/closing.md': null, 'slides/closing.html': null });
+    const errors = checkErrors(root, { complete: true });
+    assertSomeMatch(errors, /chapter "middle" has no slides\/middle\.html$/);
+    assertSomeMatch(errors, /chapter "closing" has no docs\/closing\.md and slides\/closing\.html$/);
+  });
+
+  test('reports roadmap errors', () => {
+    assertSomeMatch(checkErrors(freshDeck({ 'docs/roadmap.md': null })), /docs\/roadmap\.md is missing/);
+  });
+
+  test('the CLI exits 1 on a stale chunk and 0 when fresh', () => {
+    const stale = freshDeck({ 'docs/opening.md': '# Changed\n' });
+    fs.copyFileSync(path.join(__dirname, '..', 'build.js'), path.join(stale, 'build.js'));
+    const run = (...args) => {
+      try {
+        execFileSync(process.execPath, ['build.js', ...args], { cwd: stale, stdio: 'pipe' });
+        return 0;
+      } catch (err) {
+        return err.status;
+      }
+    };
+    assert.equal(run('--check'), 1);
+    assert.equal(run('--complete'), 2, '--complete alone is a usage error');
+    fs.writeFileSync(path.join(stale, 'docs', 'opening.md'), MD.opening);
+    assert.equal(run('--check', '--complete'), 0);
   });
 });
 
