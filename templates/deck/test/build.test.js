@@ -162,6 +162,14 @@ describe('build', () => {
     assert.ok(!/<link rel="stylesheet"|<script src=/.test(html), 'nothing may be loaded from outside the file');
   });
 
+  test('switches to live mode in <head>, before any slide can paint', () => {
+    const { html } = buildDeck(makeDeck());
+    const live = html.indexOf("<script>document.documentElement.classList.add('deck--live')</script>");
+    assert.ok(live !== -1, 'the live-mode line is missing');
+    assert.ok(live > html.indexOf('Content-Security-Policy'), 'it must come after the CSP so the CSP covers it');
+    assert.ok(live < html.indexOf('</head>'));
+  });
+
   test('escapes the title for HTML', () => {
     const { html } = buildDeck(makeDeck({ 'docs/roadmap.md': '# A <b> & "c"\n\n## Chapters\n\n1. [O](opening.md)\n' }));
     assert.ok(html.includes('<title>A &lt;b&gt; &amp; &quot;c&quot;</title>'));

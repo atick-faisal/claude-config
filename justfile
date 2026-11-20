@@ -30,11 +30,11 @@ python:
 test:
     python3 -B -m unittest discover -s skills/log-experiment
 
-# The deck scaffold's JS parses and its build tests pass. Only build.test.js is named:
+# The deck scaffold's JS parses and its Node-only tests pass. The test files are named:
 # the scaffold's Playwright tests need a deck's node_modules and run in the deck's own verify.
 node:
     git ls-files -z --cached --others --exclude-standard -- ':(glob)templates/deck/**/*.js' | xargs -0 -n1 node --check
-    node --test templates/deck/test/build.test.js
+    node --test templates/deck/test/build.test.js templates/deck/test/deck.test.js
 
 # Every JSON Claude Code reads at startup parses. A broken settings.json fails silently.
 json:
