@@ -67,6 +67,7 @@ skeletons today, and a skeleton is a real answer: nothing special applies.
 | `~/.claude/guidelines/fullstack.md`     | one repo holds both the UI and the service behind it           |
 | `~/.claude/guidelines/research.md`      | notebooks, experiment grids, or a paper being turned into code |
 | `~/.claude/guidelines/observability.md` | user asked for observability features                          |
+| `~/.claude/guidelines/presentation.md`  | a deck: `docs/roadmap.md` + `build.js`; beats `frontend.md`    |
 
 A repo's own `CLAUDE.md` beats these on any conflict. It was written about that repo.
 
