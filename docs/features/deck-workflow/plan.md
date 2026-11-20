@@ -198,6 +198,19 @@ the `skills/runbook/SKILL.md` precedent: instantiate into the target repo and wr
 - `package.json` stays CommonJS (no `"type": "module"`), because `~/.claude`'s `node` recipe loads
   the scaffold's `.js` files under it. Playwright is pinned to an exact version.
 
+**Starter contract.**
+
+- `templates/deck/` holds only what a deck uses unchanged: code, `test/`, `package.json`,
+  `justfile`, `.gitignore`. `/deck-init` copies it whole.
+- Files with placeholders live in `templates/deck-starters/`: `deck-claude.md`, `roadmap.md`,
+  `chapter.md`, `brand.md`, `budget.md`, each with a strip-block. The step that writes the real
+  file reads its starter from `~/.claude`, as `/runbook` does: `/deck-init` (`CLAUDE.md`,
+  `docs/brand.md`), `/deck-roadmap` (`docs/roadmap.md`), the `-md` and budget rows (via the guideline).
+- No starter is named `CLAUDE.md`: Claude Code would load a nested one into `~/.claude` sessions.
+- Deck justfile: `verify` collects `node --test` and `node build.js --check`; `export [budget]`
+  depends on `build [budget]`; `check *flags` gives the final-check row `--complete`.
+- A fresh deck's verify is red until `/deck-roadmap` writes the roadmap. That is expected.
+
 ## Open Questions
 
 ### Q12: What does a slide with builds show when you navigate back into it?
