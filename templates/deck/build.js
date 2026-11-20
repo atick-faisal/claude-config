@@ -10,9 +10,12 @@
  *   reads the same wherever it lives.
  * - Every error is collected and reported at once; nothing is written unless all pass.
  *
- * Usage: node build.js        Runtime: Node built-ins only.
+ * Usage: node build.js                      build the deck
+ *        node build.js --check [--complete] check chunks are fresh against their md; writes nothing
+ * Runtime: Node built-ins only.
  */
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -52,8 +55,8 @@ const CSS_ASSET_MIME = Object.freeze({
 const RESOURCE_ATTRS = new Set(['src', 'srcset', 'poster', 'href', 'xlink:href', 'data', 'background']);
 
 class BuildError extends Error {
-  constructor(errors) {
-    super(`Build failed with ${errors.length} error(s):\n  - ${errors.join('\n  - ')}`);
+  constructor(errors, what = 'Build') {
+    super(`${what} failed with ${errors.length} error(s):\n  - ${errors.join('\n  - ')}`);
     this.name = 'BuildError';
     this.errors = errors;
   }
@@ -388,10 +391,110 @@ function build(options = {}) {
   return { outFile, chapters: built, skipped, bytes: Buffer.byteLength(html), warnings };
 }
 
+// ---------------------------------------------------------------------------
+// Freshness check: "the md is the source of truth"
+// ---------------------------------------------------------------------------
+
+// A chunk names the md it was written from and that md's hash at the time.
+const SOURCE_HEADER_RE = /<!--\s*source:\s*(\S+)\s+sha256:([0-9a-fA-F]*)\s*-->/;
+
+/** The header a chunk must carry. sha256 over the md's raw bytes, so `shasum -a 256` agrees. */
+function sourceHeader(relMd, mdBytes) {
+  return `<!-- source: ${relMd} sha256:${crypto.createHash('sha256').update(mdBytes).digest('hex')} -->`;
+}
+
+/**
+ * Check every roadmap chapter's chunk against its md. Writes nothing.
+ *
+ * Fails on: a chunk whose md is missing, a chunk with no (or the wrong) source header, and a
+ * stale chunk whose md changed since it was written. A chapter whose chunk is not written
+ * yet is a warning, so a deck stays green between a chapter's md and slides steps;
+ * `complete: true` (the final check) turns any missing md or chunk into an error.
+ *
+ * @param {object} [options]
+ * @param {string} [options.root] deck root (defaults to the folder holding this file)
+ * @param {boolean} [options.complete] also fail on any chapter without both files
+ * @param {(message: string) => void} [options.warn] receives non-fatal warnings
+ * @returns {{fresh: string[], missing: string[], warnings: string[]}}
+ * @throws {BuildError} listing every problem at once
+ */
+function check(options = {}) {
+  const root = path.resolve(options.root ?? __dirname);
+  const warnings = [];
+  const warn = (message) => {
+    warnings.push(message);
+    (options.warn ?? ((m) => console.warn(`warning: ${m}`)))(message);
+  };
+  const errors = [];
+
+  const roadmapText = readRequired(root, 'docs/roadmap.md', errors);
+  const roadmap = roadmapText === null ? { chapters: [], errors: [] } : parseRoadmap(roadmapText);
+  errors.push(...roadmap.errors);
+
+  const fresh = [];
+  const missing = [];
+  for (const { topic } of roadmap.chapters) {
+    const relMd = `docs/${topic}.md`;
+    const relChunk = `slides/${topic}.html`;
+    const md = readBytes(path.join(root, 'docs', `${topic}.md`));
+    const chunk = readBytes(path.join(root, 'slides', `${topic}.html`));
+
+    if (chunk === null) {
+      missing.push(topic);
+      const absent = md === null ? `${relMd} and ${relChunk}` : relChunk;
+      if (options.complete) errors.push(`chapter "${topic}" has no ${absent}`);
+      else warn(`chapter "${topic}" has no ${absent} yet`);
+      continue;
+    }
+    if (md === null) {
+      errors.push(`${relChunk} has no ${relMd}; write the md first, it is the source of truth`);
+      continue;
+    }
+
+    const expected = sourceHeader(relMd, md);
+    const header = SOURCE_HEADER_RE.exec(chunk.toString('utf8'));
+    if (!header) {
+      errors.push(`${relChunk} has no source header; add ${expected}`);
+    } else if (header[1].replace(/^\.\//, '') !== relMd) {
+      errors.push(`${relChunk} names source "${header[1]}", expected ${relMd}`);
+    } else if (!expected.endsWith(`sha256:${header[2].toLowerCase()} -->`)) {
+      errors.push(`${relChunk} is stale: ${relMd} changed since it was written; update the slides, then set ${expected}`);
+    } else {
+      fresh.push(topic);
+    }
+  }
+
+  if (errors.length > 0) throw new BuildError(errors, 'Check');
+  return { fresh, missing, warnings };
+}
+
+/** A file's raw bytes, or null when it does not exist. */
+function readBytes(file) {
+  try {
+    return fs.readFileSync(file);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+const USAGE = 'usage: node build.js | node build.js --check [--complete]';
+
 function main(argv) {
-  if (argv.length > 0) {
-    console.error(`unknown argument(s): ${argv.join(' ')}\nusage: node build.js`);
+  const unknown = argv.filter((a) => a !== '--check' && a !== '--complete');
+  if (unknown.length > 0 || (argv.includes('--complete') && !argv.includes('--check'))) {
+    console.error(`${unknown.length ? `unknown argument(s): ${unknown.join(' ')}` : '--complete needs --check'}\n${USAGE}`);
     process.exitCode = 2;
+    return;
+  }
+  if (argv.includes('--check')) {
+    try {
+      const result = check({ complete: argv.includes('--complete') });
+      console.log(`Checked: ${result.fresh.length} chunk(s) fresh, ${result.missing.length} chapter(s) not written yet`);
+    } catch (err) {
+      console.error(err instanceof BuildError ? err.message : err);
+      process.exitCode = 1;
+    }
     return;
   }
   try {
@@ -408,6 +511,8 @@ if (require.main === module) main(process.argv.slice(2));
 
 module.exports = {
   build,
+  check,
+  sourceHeader,
   BuildError,
   CSP,
   parseRoadmap,
