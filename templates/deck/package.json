@@ -1,0 +1,9 @@
+{
+  "name": "deck",
+  "private": true,
+  "type": "commonjs",
+  "description": "An offline HTML deck. Playwright exports the PDF; it is the deck's one network exception, at install time only.",
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

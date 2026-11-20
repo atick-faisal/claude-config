@@ -737,4 +737,6 @@ module.exports = {
   escapeInlineScript,
   isExternalUrl,
   writeFileAtomic,
+  BUDGET_RE,
+  listBudgets,
 };
