@@ -177,7 +177,23 @@ the `skills/runbook/SKILL.md` precedent: instantiate into the target repo and wr
 - Local `src`, `href` and CSS `url()` resolve against the deck root, so a chunk copied into
   `budgets/<N>min/slides/` needs no edits. External URLs and paths outside the root fail the build.
 
+**Runtime contract.**
+
+- Slides are the `main.deck > section` elements. `deck.js` defines `window.Deck` immediately and boots
+  on `DOMContentLoaded`, because the interaction files are bundled after it in the same `<script>`.
+- `build.js`'s shell sets `html.deck--live` from a one-line script in `<head>`. The runtime's
+  `<script>` sits at the end of a multi-MB body, and Chrome can paint the stacked slides before it runs.
+- Every live-only style hangs off `html.deck--live`, so the PDF is the page with JavaScript off.
+  `export.js` (-06) loads it that way, because `init` sets start states.
+- `deck.js` keeps its pure logic (key map, number-jump buffer, scale maths, step-before-advance)
+  free of the DOM, so `test/deck.test.js` can cover it. `~/.claude`'s `node` recipe runs that test too.
+
 ## Open Questions
+
+### Q12: What does a slide with builds show when you navigate back into it?
+
+- [x] Its finished state (recommended): while the slide is still hidden, `deck.js` calls `step(+1)` until it returns false, with transitions off, and then shows it. This matches PowerPoint and reveal.js, and no hook changes.
+- [ ] Its start state: reset on `leave` and nothing more. This is simpler, but re-showing a point means clicking through the build again, live.
 
 ## Resolved
 
